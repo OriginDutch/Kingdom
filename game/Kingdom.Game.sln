@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kingdom.Core", "..\src\King
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kingdom.Core.Tests", "..\tests\Kingdom.Core.Tests\Kingdom.Core.Tests.csproj", "{D0A28363-8273-4407-B2BF-ECF8A6217080}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Kingdom.MapPreview", "..\tools\Kingdom.MapPreview\Kingdom.MapPreview.csproj", "{C011EE12-3BE5-4119-A8C4-DFA0CC1C3E92}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -34,5 +36,11 @@ Global
 		{D0A28363-8273-4407-B2BF-ECF8A6217080}.ExportDebug|Any CPU.Build.0 = Debug|Any CPU
 		{D0A28363-8273-4407-B2BF-ECF8A6217080}.ExportRelease|Any CPU.ActiveCfg = Release|Any CPU
 		{D0A28363-8273-4407-B2BF-ECF8A6217080}.ExportRelease|Any CPU.Build.0 = Release|Any CPU
+		{C011EE12-3BE5-4119-A8C4-DFA0CC1C3E92}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C011EE12-3BE5-4119-A8C4-DFA0CC1C3E92}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C011EE12-3BE5-4119-A8C4-DFA0CC1C3E92}.ExportDebug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C011EE12-3BE5-4119-A8C4-DFA0CC1C3E92}.ExportDebug|Any CPU.Build.0 = Debug|Any CPU
+		{C011EE12-3BE5-4119-A8C4-DFA0CC1C3E92}.ExportRelease|Any CPU.ActiveCfg = Release|Any CPU
+		{C011EE12-3BE5-4119-A8C4-DFA0CC1C3E92}.ExportRelease|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

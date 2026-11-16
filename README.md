@@ -11,6 +11,7 @@ Design decisions live in the Game Design Document: https://claude.ai/artifact/JY
 | `game/` | Godot project: rendering, input, UI. Open `game/project.godot` in Godot. |
 | `src/Kingdom.Core/` | Pure C# simulation core (world generation, economy, agents, AI). No Godot references. |
 | `tests/Kingdom.Core.Tests/` | Dependency-free test runner for the core. |
+| `tools/Kingdom.MapPreview/` | Generates a world from a seed and writes a top-down image + stats. |
 | `CHANGELOG.md` | Version history and patch notes. |
 
 ## Requirements
@@ -21,7 +22,18 @@ Design decisions live in the Game Design Document: https://claude.ai/artifact/JY
 ## Run
 
 1. Open Godot (.NET edition), import `game/project.godot`.
-2. Press Play (F5). The top-left label shows `Kingdom Game v0.0.1`.
+2. Press Play (F5). A random world is generated.
+
+### Controls
+
+| Input | Action |
+| --- | --- |
+| WASD / arrow keys | Move the camera (Shift = faster) |
+| Mouse wheel | Zoom |
+| Right mouse drag, Q / E | Rotate |
+| Left click | Found your village / move it |
+| Seed field + Generate | Generate a specific world |
+| New random seed | Generate a random world |
 
 ## Tests
 
@@ -32,6 +44,14 @@ dotnet run --project tests/Kingdom.Core.Tests
 ```
 
 Exit code `0` means all tests passed.
+
+## Map preview
+
+```
+dotnet run --project tools/Kingdom.MapPreview -- MYSEED map.ppm
+```
+
+Writes a top-down image (PPM) of the world for that seed and prints statistics.
 
 ## Versioning
 

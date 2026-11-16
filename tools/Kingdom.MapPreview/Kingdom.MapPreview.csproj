@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Developer tool: generates a world from a seed and writes a top-down image (PPM) plus statistics.
+    Usage from the repo root: dotnet run (project path: tools/Kingdom.MapPreview), arguments: SEED OUTPUT.ppm
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Kingdom.MapPreview</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kingdom.Core\Kingdom.Core.csproj" />
+  </ItemGroup>
+</Project>
