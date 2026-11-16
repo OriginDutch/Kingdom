@@ -336,6 +336,26 @@ public static class WorldGenerator
             float level = (float)(height[c] - 0.4);
             MarkRiver(c, level);
 
+            // A diagonal step only touches at a corner: add an orthogonal cell so the river is 4-connected
+            // (continuous water, and later units can't slip through diagonally).
+            int pp = parent[c];
+            if (pp >= 0)
+            {
+                int cx0 = c % n, cz0 = c / n, px0 = pp % n, pz0 = pp / n;
+                int ddx = px0 - cx0, ddz = pz0 - cz0;
+                if (ddx != 0 && ddz != 0)
+                {
+                    int a = cz0 * n + (cx0 + ddx), b = (cz0 + ddz) * n + cx0;
+                    int bridge = height[a] <= height[b] ? a : b;
+                    if (!isOcean[bridge] && !isLake[bridge] && !river[bridge])
+                    {
+                        float pLevel = river[pp] ? waterLevel[pp] : level;
+                        // Same rule as other river cells: water 0.4 m below the cell's own ground.
+                        MarkRiver(bridge, Math.Min((level + pLevel) * 0.5f, (float)(height[bridge] - 0.4)));
+                    }
+                }
+            }
+
             if (acc[c] >= s.RiverWideCells)
             {
                 int cx = c % n, cz = c / n;

@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. Newest version first.
 Versions follow `MAJOR.MINOR.PATCH`.
 
+## 0.0.3 — 2026-11-16
+
+### Fixed
+- Rivers showed as dots and dashes. Rivers are now 4-connected, fresh water is one continuous surface instead of a block per cell, and terrain quads split along their lower diagonal so diagonal valleys aren't pinched.
+
+### Changed
+- Game window is 1920 x 1080.
+- Seed field uses a monospace font so 0/O and 1/I are easy to tell apart.
+
+### Added
+- Copy and Paste buttons for the seed.
+
 ## 0.0.2 — 2026-11-16
 
 Milestone 1 (world generator), first playable version.

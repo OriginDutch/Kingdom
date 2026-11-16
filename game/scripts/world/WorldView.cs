@@ -122,9 +122,18 @@ public partial class WorldView : Node3D
         for (int x = 0; x < w - 1; x++)
         {
             int a = z * w + x, b = a + 1, c = a + w, d = c + 1;
-            // Clockwise seen from above (Godot's front-face winding).
-            indices[k++] = a; indices[k++] = b; indices[k++] = d;
-            indices[k++] = a; indices[k++] = d; indices[k++] = c;
+            // Clockwise seen from above (Godot's front-face winding). Split each quad along its lower diagonal,
+            // so valleys and rivers that run diagonally stay continuous instead of being pinched by a ridge.
+            if (SplitAlongAD(map, x0 + x, z0 + z))
+            {
+                indices[k++] = a; indices[k++] = b; indices[k++] = d;
+                indices[k++] = a; indices[k++] = d; indices[k++] = c;
+            }
+            else
+            {
+                indices[k++] = a; indices[k++] = b; indices[k++] = c;
+                indices[k++] = b; indices[k++] = d; indices[k++] = c;
+            }
         }
 
         var arrays = new Godot.Collections.Array();
@@ -200,30 +209,43 @@ public partial class WorldView : Node3D
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         });
 
-        // Lakes and rivers: one quad per water cell at its water level.
+        // Lakes and rivers: a continuous surface on the same vertex grid as the terrain.
+        // Each vertex gets the water level of its own cell, or of the highest neighbouring water cell, so the
+        // surface runs into the banks (where the terrain covers it) without steps or gaps.
         var freshMaterial = new ShaderMaterial { Shader = shader };
         freshMaterial.SetShaderParameter("water_color", new Color(0.16f, 0.42f, 0.55f));
         int n = map.Size;
-        float half = map.CellSize * 0.5f;
-        for (int cz = 0; cz * ChunkCells < n; cz++)
-        for (int cx = 0; cx * ChunkCells < n; cx++)
+        var level = new float[n * n];
+        for (int z = 0; z < n; z++)
+        for (int x = 0; x < n; x++)
+            level[map.Index(x, z)] = VertexWaterLevel(map, x, z);
+
+        for (int cz = 0; cz * ChunkCells < n - 1; cz++)
+        for (int cx = 0; cx * ChunkCells < n - 1; cx++)
         {
             var verts = new List<Vector3>();
             var indices = new List<int>();
-            int x1 = Math.Min((cx + 1) * ChunkCells, n), z1 = Math.Min((cz + 1) * ChunkCells, n);
+            int x1 = Math.Min((cx + 1) * ChunkCells, n - 1), z1 = Math.Min((cz + 1) * ChunkCells, n - 1);
             for (int z = cz * ChunkCells; z < z1; z++)
             for (int x = cx * ChunkCells; x < x1; x++)
             {
-                int i = map.Index(x, z);
-                if (map.Terrain[i] is not (TerrainType.Lake or TerrainType.River)) continue;
-                float y = map.WaterLevel[i];
-                float wx = x * map.CellSize, wz = z * map.CellSize;
-                int b = verts.Count;
-                verts.Add(new Vector3(wx - half, y, wz - half));
-                verts.Add(new Vector3(wx + half, y, wz - half));
-                verts.Add(new Vector3(wx - half, y, wz + half));
-                verts.Add(new Vector3(wx + half, y, wz + half));
-                indices.AddRange(new[] { b, b + 1, b + 3, b, b + 3, b + 2 });
+                if (!IsFresh(map, x, z) && !IsFresh(map, x + 1, z) && !IsFresh(map, x, z + 1) && !IsFresh(map, x + 1, z + 1))
+                    continue;
+                float la = level[map.Index(x, z)], lb = level[map.Index(x + 1, z)];
+                float lc = level[map.Index(x, z + 1)], ld = level[map.Index(x + 1, z + 1)];
+                if (float.IsNaN(la) || float.IsNaN(lb) || float.IsNaN(lc) || float.IsNaN(ld)) continue;
+
+                float cs = map.CellSize;
+                int a = verts.Count;
+                verts.Add(new Vector3(x * cs, la, z * cs));
+                verts.Add(new Vector3((x + 1) * cs, lb, z * cs));
+                verts.Add(new Vector3(x * cs, lc, (z + 1) * cs));
+                verts.Add(new Vector3((x + 1) * cs, ld, (z + 1) * cs));
+                int b = a + 1, c = a + 2, d = a + 3;
+                if (SplitAlongAD(map, x, z))
+                    indices.AddRange(new[] { a, b, d, a, d, c });
+                else
+                    indices.AddRange(new[] { a, b, c, b, d, c });
             }
             if (verts.Count == 0) continue;
 
@@ -244,6 +266,38 @@ public partial class WorldView : Node3D
                 CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             });
         }
+    }
+
+    private static bool IsFresh(WorldMap map, int x, int z) =>
+        map.Terrain[map.Index(x, z)] is TerrainType.Lake or TerrainType.River;
+
+    /// <summary>Water level for a vertex: its own if it is lake/river; below sea level for sea; else the highest fresh-water neighbour capped under its own ground; else NaN.</summary>
+    private static float VertexWaterLevel(WorldMap map, int x, int z)
+    {
+        int i = map.Index(x, z);
+        if (IsFresh(map, x, z)) return map.WaterLevel[i];
+        // At river mouths: slope the fresh water down under the sea surface instead of a ledge above it.
+        if (map.Terrain[i] == TerrainType.Ocean) return -0.3f;
+        float best = float.NaN;
+        for (int dz = -1; dz <= 1; dz++)
+        for (int dx = -1; dx <= 1; dx++)
+        {
+            int nx = x + dx, nz = z + dz;
+            if (!map.InBounds(nx, nz) || !IsFresh(map, nx, nz)) continue;
+            float l = map.WaterLevel[map.Index(nx, nz)];
+            if (float.IsNaN(best) || l > best) best = l;
+        }
+        // Never above the bank itself: then water can only show where the ground really is below it.
+        // (0.25 m margin avoids flickering at the shoreline.)
+        return float.IsNaN(best) ? best : MathF.Min(best, map.Height[i] - 0.25f);
+    }
+
+    /// <summary>True: split the quad at cell (x, z) along a-d (top-left to bottom-right); false: along b-c.</summary>
+    private static bool SplitAlongAD(WorldMap map, int x, int z)
+    {
+        float a = map.Height[map.Index(x, z)], b = map.Height[map.Index(x + 1, z)];
+        float c = map.Height[map.Index(x, z + 1)], d = map.Height[map.Index(x + 1, z + 1)];
+        return a + d <= b + c;
     }
 
     // ------------------------------------------------------------------ trees

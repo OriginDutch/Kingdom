@@ -246,6 +246,42 @@ public static class Program
                         Assert.True(m.Terrain[m.Index(x + dx, z + dz)] != TerrainType.Ocean, $"land at {x},{z} within {r} cells of the sea");
             }
         }),
+        ("World: rivers are 4-connected: every river piece reaches the sea or a lake via orthogonal steps", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                var reached = new bool[m.Terrain.Length];
+                var q = new Queue<int>();
+                for (int i = 0; i < m.Terrain.Length; i++)
+                    if (m.Terrain[i] is TerrainType.Ocean or TerrainType.Lake) { reached[i] = true; q.Enqueue(i); }
+                while (q.Count > 0)
+                {
+                    int c = q.Dequeue();
+                    int cx = c % m.Size, cz = c / m.Size;
+                    foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                    {
+                        int x = cx + dx, z = cz + dz;
+                        if (!m.InBounds(x, z)) continue;
+                        int j = m.Index(x, z);
+                        if (!reached[j] && m.Terrain[j] == TerrainType.River) { reached[j] = true; q.Enqueue(j); }
+                    }
+                }
+                for (int i = 0; i < m.Terrain.Length; i++)
+                    if (m.Terrain[i] == TerrainType.River)
+                        Assert.True(reached[i], $"{seed}: river cell {i % m.Size},{i / m.Size} is only connected diagonally");
+            }
+        }),
+        ("World: river water never sits above the river's own ground level by more than the carve", () =>
+        {
+            foreach (var seed in TestSeeds)
+            {
+                var m = Map(seed);
+                for (int i = 0; i < m.Terrain.Length; i++)
+                    if (m.Terrain[i] == TerrainType.River)
+                        Assert.True(m.WaterLevel[i] <= m.Height[i] + 1.0f + 1e-4f, $"{seed}: river cell {i} water {m.WaterLevel[i]} vs bed {m.Height[i]}");
+            }
+        }),
         ("World: forest only grows on plain land", () =>
         {
             var m = Map("K7QX2M9A");

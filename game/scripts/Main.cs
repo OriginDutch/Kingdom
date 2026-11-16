@@ -82,6 +82,11 @@ public partial class Main : Node3D
             CustomMinimumSize = new Vector2(170, 0),
             PlaceholderText = "letters and digits",
         };
+        // Monospace font where 0/O and 1/I look clearly different (Consolas ships with Windows).
+        _seedInput.AddThemeFontOverride("font", new SystemFont
+        {
+            FontNames = new[] { "Consolas", "Cascadia Mono", "DejaVu Sans Mono", "monospace" },
+        });
         _seedInput.TextChanged += OnSeedTextChanged;
         _seedInput.TextSubmitted += _ =>
         {
@@ -99,6 +104,31 @@ public partial class Main : Node3D
         _randomButton.Pressed += OnRandomPressed;
         row.AddChild(_randomButton);
 
+        var copyButton = new Button { Text = "Copy", FocusMode = Control.FocusModeEnum.None, TooltipText = "Copy the seed to the clipboard" };
+        copyButton.Pressed += () =>
+        {
+            if (_seedInput.Text.Length == 0) { SetStatus("No seed to copy.", isError: true); return; }
+            DisplayServer.ClipboardSet(_seedInput.Text);
+            SetStatus($"Seed {_seedInput.Text} copied to the clipboard.");
+        };
+        row.AddChild(copyButton);
+
+        var pasteButton = new Button { Text = "Paste", FocusMode = Control.FocusModeEnum.None, TooltipText = "Paste a seed from the clipboard (then press Generate)" };
+        pasteButton.Pressed += () =>
+        {
+            // Clean first, so separators like dashes don't count against the length limit.
+            string pasted = CleanSeedText(DisplayServer.ClipboardGet());
+            if (pasted.Length == 0) { SetStatus("The clipboard has no letters or digits to use as a seed.", isError: true); return; }
+            if (pasted.Length > Seed.MaxLength)
+            {
+                SetStatus($"That seed is longer than {Seed.MaxLength} characters.", isError: true);
+                return;
+            }
+            _seedInput.Text = pasted;
+            SetStatus($"Seed {pasted} pasted. Press Generate to build it.");
+        };
+        row.AddChild(pasteButton);
+
         _status = new Label
         {
             Text = "",
@@ -115,13 +145,19 @@ public partial class Main : Node3D
         });
     }
 
-    /// <summary>Keeps the seed field to upper-case letters and digits while typing.</summary>
-    private void OnSeedTextChanged(string text)
+    /// <summary>Upper-case letters and digits only.</summary>
+    private static string CleanSeedText(string text)
     {
         var clean = new System.Text.StringBuilder(text.Length);
         foreach (char c in text.ToUpperInvariant())
             if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) clean.Append(c);
-        string result = clean.ToString();
+        return clean.ToString();
+    }
+
+    /// <summary>Keeps the seed field to upper-case letters and digits while typing.</summary>
+    private void OnSeedTextChanged(string text)
+    {
+        string result = CleanSeedText(text);
         if (result != text)
         {
             int caret = _seedInput.CaretColumn;
