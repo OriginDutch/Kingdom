@@ -3,6 +3,12 @@
 All notable changes to this project are documented here. Newest version first.
 Versions follow `MAJOR.MINOR.PATCH`.
 
+## 0.0.6 — 2026-11-16
+
+### Fixed
+- Where a mountain range meets a volcano there was still a cliff ring at the volcano's foot; the range now fades out smoothly beyond the foot as well.
+- Plateaus meant to lean against a mountain are re-placed when the mountainside can't be climbed there, so about 2 in 3 really do.
+
 ## 0.0.5 — 2026-11-16
 
 Relief polish after the follow-up review.

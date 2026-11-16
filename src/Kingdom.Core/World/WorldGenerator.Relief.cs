@@ -94,7 +94,8 @@ public static partial class WorldGenerator
 
             double rimH = Cone(craterR / radius);
             double floorH = rimH - craterDepth;
-            int rc = (int)Math.Ceiling(radius * 1.25 * stretch / s.CellSize) + 1;
+            // A bit beyond the foot too: ranges fade out over rn 0.45-1.3, so rn is needed out to 1.3.
+            int rc = (int)Math.Ceiling(radius * 1.25 * 1.3 * stretch / s.CellSize) + 1;
             int gx = c % n, gz = c / n;
             double sa = Math.Cos(stretchAngle), sb = Math.Sin(stretchAngle);
             for (int z = Math.Max(0, gz - rc); z <= Math.Min(n - 1, gz + rc); z++)
@@ -110,6 +111,7 @@ public static partial class WorldGenerator
                 double ct = Math.Cos(theta), st = Math.Sin(theta);
                 double footprint = 1 + 0.25 * shapeNoise.Fbm(ct * 1.3 + footprintOffset, st * 1.3, 3);
                 double rn = Math.Sqrt(u * u + v * v) / (radius * footprint); // 0 at the top, 1 at the foot
+                if (rn < volcanoRn[i]) volcanoRn[i] = rn;
                 if (rn >= 1) continue;
                 double craterN = craterR / radius * (1 + 0.15 * shapeNoise.Sample(ct * 2 + footprintOffset + 40, st * 2));
 
@@ -151,8 +153,6 @@ public static partial class WorldGenerator
 
                 h = Math.Max(h, 0);
                 if (h > mountainAdd[i]) mountainAdd[i] = h;
-                // Where the volcano is (0 = top, 1 = foot); ranges fade out towards the top.
-                if (rn < volcanoRn[i]) volcanoRn[i] = rn;
             }
 
             if (parasite)
@@ -549,6 +549,14 @@ public static partial class WorldGenerator
             // Against a mountain, the mountainside must really be a way up: walk from the top onto mountain ground
             // well above it without dropping more than a few metres. If not, it's just a plateau near a mountain.
             bool againstMountain = near && HasWayOntoMountain(s, height, isOcean, mountainAdd, gx, gz, baseTop, r * 2.5);
+            if (near && !againstMountain)
+            {
+                // Meant to lean against a mountain but the mountainside isn't climbable here: try another spot.
+                for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                    height[z * n + x] = backup[(z - z0) * bw + (x - x0)];
+                continue;
+            }
             foreach (int i in touched) plateauStamp[i] = true;
             foreach (int i in topCells) plateauTop[i] = true;
             result.Add(new Plateau(cx, cz, (float)r, (float)baseTop, accessCount, againstMountain));
