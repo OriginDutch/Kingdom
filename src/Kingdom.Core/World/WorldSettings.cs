@@ -16,8 +16,38 @@ public sealed class WorldSettings
     public double BorderOceanMeters { get; init; } = 300;
     public double SeaFloorDepth { get; init; } = -35;
     public double LandBaseHeight { get; init; } = 4;
-    /// <summary>Maximum extra height from hills. "Light hills" per GDD.</summary>
-    public double HillHeight { get; init; } = 38;
+    /// <summary>Maximum extra height of the lowland hills (0.0.4: more relief, ~60-100 m differences).</summary>
+    public double HillHeight { get; init; } = 85;
+
+    // --- Mountains (GDD 0.0.4) ---
+    /// <summary>Cells raised more than this by mountains/volcanoes count as mountain.</summary>
+    public double MountainThreshold { get; init; } = 60;
+    /// <summary>Share of the island the generator aims to make mountainous (cap is 15%).</summary>
+    public double MountainTargetShare { get; init; } = 0.11;
+    public double MountainMaxShare { get; init; } = 0.15;
+    /// <summary>Peak height of mountain ranges above the lowland, in metres.</summary>
+    public double MountainRangeHeight { get; init; } = 420;
+    public double VolcanoMinHeight { get; init; } = 330;
+    public double VolcanoMaxHeight { get; init; } = 470;
+    /// <summary>No forest above this height, in metres.</summary>
+    public double TreeLine { get; init; } = 330;
+
+    // --- Plateaus ---
+    public int PlateauMin { get; init; } = 2;
+    public int PlateauMax { get; init; } = 5;
+    /// <summary>Base radius; the lobed edge (about +-20%) makes the top 300-800 m across.</summary>
+    public double PlateauMinRadius { get; init; } = 210;
+    public double PlateauMaxRadius { get; init; } = 310;
+
+    // --- Coastal cliffs ---
+    /// <summary>Share of the coastline the generator aims to turn into cliffs (cap is 35%).</summary>
+    public double CoastCliffTargetShare { get; init; } = 0.28;
+    public double CoastCliffMaxShare { get; init; } = 0.35;
+
+    // --- Slope classes (degrees), GDD 2026-11-16 ---
+    public double SlopeNormalMax { get; init; } = 10;
+    public double SlopeSlowMax { get; init; } = 20;
+    public double SlopeClimbMax { get; init; } = 35;
 
     // --- Coast ---
     /// <summary>Beach ring width in cells (4 x 10 m = 40 m).</summary>

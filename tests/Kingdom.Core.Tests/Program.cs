@@ -15,7 +15,8 @@ public static class Program
 {
     private static readonly string[] TestSeeds = { "K7QX2M9A", "HELLO123", "Z" };
     /// <summary>Wider sweep for invariants that must hold for any seed.</summary>
-    private static readonly string[] SweepSeeds = { "A", "B", "C", "4", "ROME", "QWERTY", "ASDF1234", "LONDON", "TEST9", "ZZZ999" };
+    private static readonly string[] SweepSeeds = { "A", "B", "C", "4", "ROME", "QWERTY", "ASDF1234", "LONDON", "TEST9", "ZZZ999",
+        "S10U593", "S20V550", "S118B500", "S12Q214", "S0K895", "S7T689", "S110B127", "OU402CV9" };
     private static readonly Dictionary<string, WorldMap> Maps = new();
 
     private static WorldMap Map(string seed)
@@ -109,7 +110,7 @@ public static class Program
                 Assert.True(a > 20 && a < 70, $"{seed}: land area {a:0.0} km2");
             }
         }),
-        ("World: plain land never touches the ocean directly (beach ring)", () =>
+        ("World: outside cliff stretches, plain land never touches the ocean (beach ring)", () =>
         {
             foreach (var seed in TestSeeds)
             {
@@ -117,11 +118,12 @@ public static class Program
                 for (int z = 1; z < m.Size - 1; z++)
                 for (int x = 1; x < m.Size - 1; x++)
                 {
-                    if (m.Terrain[m.Index(x, z)] != TerrainType.Land) continue;
+                    int li = m.Index(x, z);
+                    if (m.Terrain[li] != TerrainType.Land || m.CliffCoast[li]) continue;
                     for (int dz = -1; dz <= 1; dz++)
                     for (int dx = -1; dx <= 1; dx++)
                         Assert.True(m.Terrain[m.Index(x + dx, z + dz)] != TerrainType.Ocean,
-                            $"{seed}: land at {x},{z} touches ocean");
+                            $"{seed}: non-cliff land at {x},{z} touches ocean");
                 }
             }
         }),
@@ -240,6 +242,11 @@ public static class Program
             for (int x = r + 1; x < m.Size - r - 1; x += 3)
             {
                 if (m.Terrain[m.Index(x, z)] != TerrainType.Land) continue;
+                bool nearCliff = false;
+                for (int dz = -r; dz <= r && !nearCliff; dz++)
+                for (int dx = -r; dx <= r; dx++)
+                    if (m.CliffCoast[m.Index(x + dx, z + dz)]) { nearCliff = true; break; }
+                if (nearCliff) continue;
                 for (int dz = -r; dz <= r; dz++)
                 for (int dx = -r; dx <= r; dx++)
                     if (dx * dx + dz * dz <= r * r)
@@ -280,6 +287,244 @@ public static class Program
                 for (int i = 0; i < m.Terrain.Length; i++)
                     if (m.Terrain[i] == TerrainType.River)
                         Assert.True(m.WaterLevel[i] <= m.Height[i] + 1.0f + 1e-4f, $"{seed}: river cell {i} water {m.WaterLevel[i]} vs bed {m.Height[i]}");
+            }
+        }),
+        ("Relief: highest point is a real mountain (at least 250 m), never above 600 m", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                float max = Map(seed).Height.Max();
+                Assert.True(max >= 250 && max <= 600, $"{seed}: max height {max:0} m");
+            }
+        }),
+        ("Relief: mountains cover at most 15% of the island", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                double land = m.Terrain.Count(t => t != TerrainType.Ocean);
+                double share = m.Mountain.Count(b => b) / land;
+                Assert.True(share <= m.Settings.MountainMaxShare, $"{seed}: mountains {share:P1}");
+            }
+        }),
+        ("Relief: every world has 1-3 volcanoes with a crater; crater lakes hold water", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                Assert.True(m.Volcanoes.Count >= 1 && m.Volcanoes.Count <= 3, $"{seed}: {m.Volcanoes.Count} volcanoes");
+                foreach (var v in m.Volcanoes)
+                {
+                    Assert.True(m.TryGetCell(v.CenterX, v.CenterZ, out int cx, out int cz), "volcano outside map");
+                    // The crater centre is lower than the rim.
+                    float centre = m.Height[m.Index(cx, cz)];
+                    // Highest point of the rim (one direction may be the breach notch).
+                    float rim = float.MinValue;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        double a = k * Math.PI / 4;
+                        rim = MathF.Max(rim, m.GroundHeightAt(v.CenterX + (float)Math.Cos(a) * v.CraterRadius, v.CenterZ + (float)Math.Sin(a) * v.CraterRadius));
+                    }
+                    Assert.True(centre < rim, $"{seed}: no crater (centre {centre:0} m, rim {rim:0} m)");
+                    if (v.HasCraterLake)
+                        Assert.True(m.Terrain[m.Index(cx, cz)] == TerrainType.Lake, $"{seed}: crater lake missing");
+                }
+            }
+        }),
+        ("Relief: 2-5 plateaus with gently undulating tops (3-6 m) that are clearly raised", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                Assert.True(m.Plateaus.Count >= 2 && m.Plateaus.Count <= 5, $"{seed}: {m.Plateaus.Count} plateaus");
+                foreach (var p in m.Plateaus)
+                {
+                    Assert.True(p.Radius >= 210 && p.Radius <= 310, $"{seed}: plateau radius {p.Radius:0}");
+                    Assert.True(p.Accesses >= 1 && p.Accesses <= 3, $"{seed}: {p.Accesses} accesses");
+                    // Flat: the inner half of the top is level (dry cells; a river may cut through).
+                    int flat = 0, samples = 0;
+                    for (int k = 0; k < 24; k++)
+                    {
+                        double a = k * Math.PI / 12;
+                        foreach (float f in new[] { 0f, 0.25f, 0.5f })
+                        {
+                            float px = p.CenterX + (float)Math.Cos(a) * p.Radius * f, pz = p.CenterZ + (float)Math.Sin(a) * p.Radius * f;
+                            m.TryGetCell(px, pz, out int gx, out int gz);
+                            if (m.IsWater(m.Index(gx, gz))) continue;
+                            samples++;
+                            if (MathF.Abs(m.GroundHeightAt(px, pz) - p.TopHeight) < 4f) flat++;
+                        }
+                    }
+                    Assert.True(flat >= samples * 0.85, $"{seed}: plateau top not level ({flat}/{samples} level)");
+                    // Gently undulating: 3-6 m between the highest and lowest point of the whole top
+                    // (top cells away from the rim; ravines are not part of the top).
+                    float lo = float.MaxValue, hi = float.MinValue;
+                    int rc = (int)(p.Radius * 1.4f / m.CellSize);
+                    m.TryGetCell(p.CenterX, p.CenterZ, out int pcx, out int pcz);
+                    for (int z = pcz - rc; z <= pcz + rc; z++)
+                    for (int x = pcx - rc; x <= pcx + rc; x++)
+                    {
+                        if (!m.InBounds(x, z)) continue;
+                        int i = m.Index(x, z);
+                        if (!m.PlateauTop[i] || m.SlopeClasses[i] != SlopeClass.Normal) continue;
+                        lo = MathF.Min(lo, m.Height[i]); hi = MathF.Max(hi, m.Height[i]);
+                    }
+                    Assert.True(hi - lo >= 2.5f && hi - lo <= 6.5f, $"{seed}: plateau top varies {hi - lo:0.0} m");
+                    // Raised: in most directions the ground just outside is clearly lower (ramps excepted).
+                    int lower = 0;
+                    for (int k = 0; k < 16; k++)
+                    {
+                        double a = k * Math.PI / 8;
+                        float o = m.GroundHeightAt(p.CenterX + (float)Math.Cos(a) * p.Radius * 1.6f, p.CenterZ + (float)Math.Sin(a) * p.Radius * 1.6f);
+                        if (p.TopHeight - o > 15) lower++;
+                    }
+                    Assert.True(lower >= (p.AgainstMountain ? 5 : 8), $"{seed}: plateau only clearly raised in {lower}/16 directions");
+                }
+            }
+        }),
+        ("Relief: plateaus can be climbed: from every plateau top there is a dry way down past the edge without a cliff", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                foreach (var p in m.Plateaus)
+                {
+                    m.TryGetCell(p.CenterX, p.CenterZ, out int sx, out int sz);
+                    // Walk from the plateau centre over non-impassable dry cells; must reach well outside the plateau.
+                    var seen = new HashSet<int> { m.Index(sx, sz) };
+                    var q = new Queue<int>(seen);
+                    bool escaped = false;
+                    // Far enough to be past the cliff edge and onto the land around the plateau.
+                    double limit = p.Radius * 1.3 + 40;
+                    while (q.Count > 0 && !escaped)
+                    {
+                        int c = q.Dequeue();
+                        int cx = c % m.Size, cz = c / m.Size;
+                        foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                        {
+                            int x = cx + dx, z = cz + dz;
+                            if (!m.InBounds(x, z)) continue;
+                            int j = m.Index(x, z);
+                            // Water blocks (rivers need a bridge, GDD); impassable cells are cliffs.
+                            if (seen.Contains(j) || m.IsWater(j) || m.SlopeClasses[j] == SlopeClass.Impassable) continue;
+                            seen.Add(j);
+                            float wx = x * m.CellSize - p.CenterX, wz = z * m.CellSize - p.CenterZ;
+                            // Escaped = past the edge and clearly down off the top.
+                            if (MathF.Sqrt(wx * wx + wz * wz) > limit && m.Height[j] < p.TopHeight - 15) { escaped = true; break; }
+                            q.Enqueue(j);
+                        }
+                    }
+                    Assert.True(escaped, $"{seed}: plateau at {p.CenterX:0},{p.CenterZ:0} has no walkable way down");
+                }
+            }
+        }),
+        ("Relief: about 2 in 3 plateaus lean against a mountain or volcano", () =>
+        {
+            int near = 0, total = 0;
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                total += m.Plateaus.Count;
+                near += m.Plateaus.Count(p => p.AgainstMountain);
+                foreach (var p in m.Plateaus.Where(p => p.AgainstMountain))
+                {
+                    // Some mountain cell within ~1 km of the centre.
+                    bool found = false;
+                    for (int k = 0; k < 32 && !found; k++)
+                    for (float d = p.Radius; d <= p.Radius + 900 && !found; d += 50)
+                    {
+                        double a = k * Math.PI / 16;
+                        if (m.TryGetCell(p.CenterX + (float)Math.Cos(a) * d, p.CenterZ + (float)Math.Sin(a) * d, out int gx, out int gz))
+                            found = m.Mountain[m.Index(gx, gz)];
+                    }
+                    Assert.True(found, $"{seed}: plateau marked as against a mountain has none nearby");
+                }
+            }
+            double share = (double)near / total;
+            Assert.True(share >= 0.45 && share <= 0.85, $"{share:P0} of plateaus against a mountain");
+        }),
+        ("Relief: coastal cliffs are at most 35% of the coastline, and some exist", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                int coast = 0, cliff = 0, steep = 0;
+                for (int z = 1; z < m.Size - 1; z++)
+                for (int x = 1; x < m.Size - 1; x++)
+                {
+                    int i = m.Index(x, z);
+                    if (m.Terrain[i] is not (TerrainType.Beach or TerrainType.Land)) continue;
+                    bool touches = false;
+                    for (int dz = -1; dz <= 1; dz++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (m.Terrain[m.Index(x + dx, z + dz)] == TerrainType.Ocean) touches = true;
+                    if (!touches) continue;
+                    coast++;
+                    if (m.Terrain[i] == TerrainType.Land)
+                    {
+                        cliff++;
+                        // Cells facing the sea directly (not just at a corner) must be a real cliff.
+                        bool facing = false;
+                        foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                            if (m.Terrain[m.Index(x + dx, z + dz)] == TerrainType.Ocean) facing = true;
+                        if (!facing || m.SlopeClasses[i] == SlopeClass.Impassable) steep++;
+                    }
+                }
+                double share = (double)cliff / coast;
+                Assert.True(share > 0.05 && share <= m.Settings.CoastCliffMaxShare, $"{seed}: coastal cliffs {share:P0}");
+                Assert.True(steep >= cliff * 0.8, $"{seed}: only {steep}/{cliff} cliff-coast cells are actually impassable");
+            }
+        }),
+        ("Relief: slope classes follow the GDD thresholds", () =>
+        {
+            Assert.Equal(SlopeClass.Normal, WorldGenerator.Classify(0));
+            Assert.Equal(SlopeClass.Normal, WorldGenerator.Classify(10));
+            Assert.Equal(SlopeClass.Slow, WorldGenerator.Classify(10.1));
+            Assert.Equal(SlopeClass.Slow, WorldGenerator.Classify(20));
+            Assert.Equal(SlopeClass.Climb, WorldGenerator.Classify(20.1));
+            Assert.Equal(SlopeClass.Climb, WorldGenerator.Classify(35));
+            Assert.Equal(SlopeClass.Impassable, WorldGenerator.Classify(35.1));
+            var m = Map("K7QX2M9A");
+            for (int i = 0; i < m.Slope.Length; i += 97)
+                Assert.Equal(WorldGenerator.Classify(m.Slope[i]), m.SlopeClasses[i]);
+        }),
+        ("Relief: stone sits mainly in the mountains", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                var stone = m.Resources.Where(r => r.Type == ResourceType.Stone).ToList();
+                int inMountains = stone.Count(c =>
+                {
+                    m.TryGetCell(c.CenterX, c.CenterZ, out int x, out int z);
+                    return m.Mountain[m.Index(x, z)];
+                });
+                Assert.True(inMountains >= stone.Count * 0.6, $"{seed}: only {inMountains}/{stone.Count} stone clusters in the mountains");
+            }
+        }),
+        ("Relief: no forest above the tree line or on cliffs", () =>
+        {
+            foreach (var seed in TestSeeds)
+            {
+                var m = Map(seed);
+                for (int i = 0; i < m.Forest.Length; i++)
+                    if (m.Forest[i]) Assert.True(m.Height[i] < m.Settings.TreeLine && m.Slope[i] < 30, $"{seed}: forest at {m.Height[i]:0} m, {m.Slope[i]:0} deg");
+            }
+        }),
+        ("Relief: breached craters drain (no crater lake unless the volcano has one)", () =>
+        {
+            foreach (var seed in TestSeeds.Concat(SweepSeeds))
+            {
+                var m = Map(seed);
+                foreach (var v in m.Volcanoes.Where(v => !v.HasCraterLake))
+                {
+                    m.TryGetCell(v.CenterX, v.CenterZ, out int x, out int z);
+                    int rc = (int)(v.CraterRadius * 1.2f / m.CellSize), lakeCells = 0;
+                    for (int dz = -rc; dz <= rc; dz++)
+                    for (int dx = -rc; dx <= rc; dx++)
+                        if (m.InBounds(x + dx, z + dz) && m.Terrain[m.Index(x + dx, z + dz)] == TerrainType.Lake) lakeCells++;
+                    Assert.True(lakeCells < 20, $"{seed}: breached crater holds {lakeCells} lake cells");
+                }
             }
         }),
         ("World: forest only grows on plain land", () =>

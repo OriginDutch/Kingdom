@@ -173,9 +173,19 @@ public partial class WorldView : Node3D
                 }
                 else
                 {
-                    float t = Mathf.Clamp(height / 40f, 0, 1);
-                    c = new Color(0.45f, 0.64f, 0.29f).Lerp(new Color(0.58f, 0.60f, 0.34f), t);
+                    // Lowland grass, drier on the hills.
+                    float t = Mathf.Clamp(height / 100f, 0, 1);
+                    c = new Color(0.45f, 0.64f, 0.29f).Lerp(new Color(0.56f, 0.60f, 0.33f), t);
                 }
+                // Uplands turn to scrub, then bare stony ground (forest keeps most of its green).
+                float upland = map.Forest[i] ? 0.35f : 1f;
+                c = c.Lerp(new Color(0.50f, 0.54f, 0.34f), SmoothStep(120f, 260f, height) * upland);
+                c = c.Lerp(new Color(0.56f, 0.53f, 0.47f), SmoothStep(260f, 380f, height) * upland);
+                // Steep ground is rock (cliffs, mountain faces, plateau edges).
+                c = c.Lerp(new Color(0.50f, 0.47f, 0.42f), SmoothStep(22f, 34f, map.Slope[i]));
+                // Volcanic ground: dark ash and basalt, following the volcano's real (irregular) shape.
+                float volcanic = SmoothStep(0.25f, 0.7f, map.Volcanic[i]);
+                if (volcanic > 0f) c = c.Lerp(new Color(0.30f, 0.27f, 0.26f), volcanic * 0.85f);
                 break;
         }
         return new Color(c.R + jitter, c.G + jitter, c.B + jitter * 0.5f);
@@ -504,6 +514,12 @@ public partial class WorldView : Node3D
     }
 
     // ------------------------------------------------------------------ helpers
+
+    private static float SmoothStep(float edge0, float edge1, float x)
+    {
+        float t = Mathf.Clamp((x - edge0) / (edge1 - edge0), 0f, 1f);
+        return t * t * (3f - 2f * t);
+    }
 
     /// <summary>Deterministic pseudo-random value in [0, 1) for a cell; keeps visuals stable per seed.</summary>
     private float Hash(int x, int z)

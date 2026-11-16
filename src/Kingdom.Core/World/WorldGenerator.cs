@@ -7,14 +7,15 @@ namespace Kingdom.Core.World;
 /// Builds a <see cref="WorldMap"/> from a <see cref="Seed"/>. Deterministic: same seed + settings = same world.
 ///
 /// Pipeline:
-///  1. Island heightmap (shape noise x hill noise, forced ocean border)
-///  2. Ocean = below sea level and connected to the border
-///  3. Coast: beach ring + gentle ramp up from the sea
-///  4. Priority-flood drainage: every land cell drains to the sea; deep depressions become lakes
-///  5. Flow accumulation: cells with a large upstream area become rivers
-///  6. Fresh-water distance, forests, resource clusters, village suitability
+///  1. Island lowland (shape noise x hill noise, forced ocean border); ocean; keep one landmass
+///  2. Coast ramp (gentle rise from the beach)
+///  3. Relief: volcanoes, mountain ranges (max 15%), plateaus, coastal cliffs (max 35% of coast)
+///  4. River valleys carved from a first drainage pass
+///  5. Priority-flood drainage: every land cell drains to the sea; deep depressions become lakes
+///  6. Flow accumulation: cells with a large upstream area become rivers
+///  7. Slopes, fresh-water distance, forests, resource clusters, village suitability
 /// </summary>
-public static class WorldGenerator
+public static partial class WorldGenerator
 {
     // Independent random streams, so changing one feature doesn't reshuffle the others.
     private const ulong StreamIsland = 1, StreamHills = 2, StreamForest = 3, StreamResources = 4;
@@ -35,15 +36,40 @@ public static class WorldGenerator
         var isOcean = FloodOcean(n, height);
         KeepLargestLandmass(n, height, isOcean);
 
-        // True (Euclidean) distance to the sea in cells, used for the beach and the coastal ramp.
+        // True (Euclidean) distance to the sea in cells, used for the beach, the coastal ramp and relief placement.
         var coastDist = DistanceTransform(n, isOcean);
         ApplyCoastRamp(s, height, isOcean, coastDist);
+
+        // Relief on top of the lowland.
+        var mountainAdd = new double[count];
+        var volcanoRn = new double[count];
+        Array.Fill(volcanoRn, 10.0);
+        var volcanoes = AddVolcanoes(seed, s, coastDist, isOcean, mountainAdd, volcanoRn);
+        AddMountainRanges(seed, s, coastDist, isOcean, mountainAdd, volcanoRn);
+        var isMountain = new bool[count];
+        for (int i = 0; i < count; i++)
+        {
+            if (isOcean[i]) continue;
+            height[i] += mountainAdd[i];
+            isMountain[i] = mountainAdd[i] > s.MountainThreshold;
+        }
+        CutCraterBreaches(s, height, isOcean, volcanoes);
+        var volcanic = new float[count];
+        for (int i = 0; i < count; i++) volcanic[i] = (float)Math.Clamp(1 - volcanoRn[i], 0, 1);
+        var plateauTop = new bool[count];
+        var plateauStamp = new bool[count];
+        var plateaus = AddPlateaus(seed, s, height, coastDist, isOcean, mountainAdd, plateauTop, plateauStamp);
+
+        // Valleys before cliffs, so river mouths stay open instead of ending in a waterfall.
+        var valley = CarveRiverValleys(n, s, height, isOcean, plateauStamp);
+        var cliffZone = AddCoastCliffs(seed, s, height, coastDist, isOcean, valley);
 
         // Drainage and lakes.
         var filled = new double[count];
         var parent = new int[count];
         var order = PriorityFlood(n, height, isOcean, filled, parent);
-        var lakeLevel = FindLakes(n, s, height, filled, isOcean, out var isLake);
+        // Hollows on plateau tops are filled in rather than becoming ponds (keeps the tops usable).
+        var lakeLevel = FindLakes(n, s, height, filled, isOcean, plateauTop, out var isLake);
         for (int i = 0; i < count; i++)
         {
             // Small puddles are filled in, so the land drains cleanly.
@@ -62,7 +88,7 @@ public static class WorldGenerator
             if (isOcean[i]) { terrain[i] = TerrainType.Ocean; waterLevel[i] = 0f; }
             else if (isLake[i]) { terrain[i] = TerrainType.Lake; waterLevel[i] = (float)lakeLevel[i]; }
             else if (isRiver[i]) terrain[i] = TerrainType.River;
-            else if (coastDist[i] <= s.BeachWidthCells) terrain[i] = TerrainType.Beach;
+            else if (coastDist[i] <= s.BeachWidthCells && !cliffZone[i]) terrain[i] = TerrainType.Beach;
             else terrain[i] = TerrainType.Land;
 
             if (terrain[i] is TerrainType.Beach or TerrainType.Land or TerrainType.River) landCells++;
@@ -78,11 +104,28 @@ public static class WorldGenerator
         var freshDist = new float[count];
         for (int i = 0; i < count; i++) freshDist[i] = (float)(freshCells[i] * s.CellSize);
 
-        var forestNoise = BuildForest(seed, s, terrain, out var forest);
-        var resources = PlaceResources(seed, s, heightF, terrain, forest, forestNoise, landAreaKm2);
+        var slope = ComputeSlope(n, s.CellSize, heightF, out var slopeClasses, s);
+
+        // A "beach" must be low and gentle; steep or high shore (e.g. a volcano reaching the sea) is cliff coast.
+        var steepShore = new bool[count];
+        for (int i = 0; i < count; i++)
+        {
+            if (terrain[i] != TerrainType.Beach) continue;
+            if (heightF[i] > 3 || slope[i] >= s.SlopeSlowMax)
+            {
+                terrain[i] = TerrainType.Land;
+                steepShore[i] = true;
+            }
+        }
+        var forestNoise = BuildForest(seed, s, terrain, heightF, slope, out var forest);
+        var resources = PlaceResources(seed, s, heightF, terrain, forest, forestNoise, slope, isMountain, landAreaKm2);
         var suitable = BuildSuitability(n, s, heightF, terrain, freshDist);
 
-        return new WorldMap(seed, s, heightF, waterLevel, terrain, forest, freshDist, suitable, resources, landAreaKm2);
+        var cliffCoast = new bool[count];
+        for (int i = 0; i < count; i++) cliffCoast[i] = (cliffZone[i] && coastDist[i] <= s.BeachWidthCells && !isOcean[i]) || steepShore[i];
+
+        return new WorldMap(seed, s, heightF, waterLevel, terrain, forest, freshDist, suitable, resources, landAreaKm2,
+            slope, slopeClasses, isMountain, plateauTop, cliffCoast, volcanoes, plateaus, volcanic);
     }
 
     // ---------------------------------------------------------------- 1. heights
@@ -105,9 +148,9 @@ public static class WorldGenerator
             double shape = islandNoise.Fbm(wx / 3000.0, wz / 3000.0, 4);
             double mask = 1 - SmoothStep(0.58, 0.97, d + 0.25 * shape);
 
-            // Light hills: more lowland than highland.
+            // Rolling hills: still more lowland than highland.
             double hills = (hillNoise.Fbm(wx / 2200.0, wz / 2200.0, 5) + 1) * 0.5;
-            hills = Math.Pow(Math.Clamp(hills, 0, 1), 1.6);
+            hills = Math.Pow(Math.Clamp(hills, 0, 1), 1.4);
             double landH = s.LandBaseHeight + s.HillHeight * hills;
 
             double h = s.SeaFloorDepth + (landH - s.SeaFloorDepth) * mask;
@@ -265,7 +308,7 @@ public static class WorldGenerator
     /// a lake as a whole, with one water level per lake, so there is no dry rim at water level.
     /// Returns the water level per cell (NaN outside lakes).
     /// </summary>
-    private static double[] FindLakes(int n, WorldSettings s, double[] height, double[] filled, bool[] isOcean, out bool[] lake)
+    private static double[] FindLakes(int n, WorldSettings s, double[] height, double[] filled, bool[] isOcean, bool[] noLake, out bool[] lake)
     {
         // Filled cells drift up by eps per step; anything above this counts as "under water".
         const double minFill = 0.01;
@@ -281,12 +324,14 @@ public static class WorldGenerator
             if (seen[i] || isOcean[i] || filled[i] - height[i] <= minFill) continue;
             component.Clear();
             double maxDepth = 0, surface = double.MinValue;
+            bool forbidden = false;
             stack.Push(i);
             seen[i] = true;
             while (stack.Count > 0)
             {
                 int c = stack.Pop();
                 component.Add(c);
+                forbidden |= noLake[c];
                 maxDepth = Math.Max(maxDepth, filled[c] - height[c]);
                 surface = Math.Max(surface, filled[c]);
                 int cx = c % n, cz = c / n;
@@ -298,7 +343,7 @@ public static class WorldGenerator
                     if (!seen[j] && !isOcean[j] && filled[j] - height[j] > minFill) { seen[j] = true; stack.Push(j); }
                 }
             }
-            if (component.Count < s.LakeMinCells || maxDepth < s.LakeMinDepth) continue;
+            if (forbidden || component.Count < s.LakeMinCells || maxDepth < s.LakeMinDepth) continue;
             foreach (int c in component)
             {
                 lake[c] = true;
@@ -314,16 +359,7 @@ public static class WorldGenerator
         int[] parent, int[] order, float[] waterLevel)
     {
         int count = n * n;
-        var acc = new int[count];
-        for (int i = 0; i < count; i++) acc[i] = isOcean[i] ? 0 : 1;
-
-        // Upstream cells were processed later in the flood, so walk the order backwards.
-        for (int k = order.Length - 1; k >= 0; k--)
-        {
-            int c = order[k];
-            int p = parent[c];
-            if (p >= 0 && !isOcean[p]) acc[p] += acc[c];
-        }
+        var acc = Accumulate(order, parent, isOcean, count);
 
         var river = new bool[count];
         var bed = new double[count];
@@ -383,7 +419,7 @@ public static class WorldGenerator
 
     // ---------------------------------------------------------------- 6. forest, resources, suitability
 
-    private static float[] BuildForest(Seed seed, WorldSettings s, TerrainType[] terrain, out bool[] forest)
+    private static float[] BuildForest(Seed seed, WorldSettings s, TerrainType[] terrain, float[] height, float[] slope, out bool[] forest)
     {
         int n = s.Size;
         var noise = new Noise(Rng.For(seed.Value, StreamForest));
@@ -395,13 +431,14 @@ public static class WorldGenerator
             int i = z * n + x;
             double v = noise.Fbm(x * s.CellSize / 700.0, z * s.CellSize / 700.0, 4);
             values[i] = (float)v;
-            forest[i] = terrain[i] == TerrainType.Land && v > s.ForestThreshold;
+            // No trees above the tree line or on cliff-steep ground.
+            forest[i] = terrain[i] == TerrainType.Land && v > s.ForestThreshold && height[i] < s.TreeLine && slope[i] < 30;
         }
         return values;
     }
 
     private static List<ResourceCluster> PlaceResources(Seed seed, WorldSettings s, float[] height, TerrainType[] terrain,
-        bool[] forest, float[] forestNoise, double landAreaKm2)
+        bool[] forest, float[] forestNoise, float[] slope, bool[] isMountain, double landAreaKm2)
     {
         int n = s.Size;
         var result = new List<ResourceCluster>();
@@ -414,28 +451,38 @@ public static class WorldGenerator
         float hillCut = landHeights.Count > 0 ? landHeights[(int)(landHeights.Count * 0.65)] : 0;
 
         var stoneCandidates = new List<int>();
+        var stoneSlopeCandidates = new List<int>();
         var berryCandidates = new List<int>();
         var appleCandidates = new List<int>();
         for (int i = 0; i < height.Length; i++)
         {
-            if (terrain[i] != TerrainType.Land) continue;
-            if (height[i] >= hillCut && !forest[i]) stoneCandidates.Add(i);
+            if (terrain[i] != TerrainType.Land || slope[i] >= 33) continue;
+            // Stone mainly in the mountains; a minority on rocky lowland slopes.
+            if (!forest[i] && isMountain[i]) stoneCandidates.Add(i);
+            else if (!forest[i] && slope[i] >= 12) stoneSlopeCandidates.Add(i);
             // Berries along forest edges: just below the forest threshold, or forest close to its edge.
             float f = forestNoise[i];
             if (f > s.ForestThreshold - 0.12 && f < s.ForestThreshold + 0.04) berryCandidates.Add(i);
             if (!forest[i]) appleCandidates.Add(i);
         }
+        if (stoneCandidates.Count < 200)
+        {
+            // Hardly any mountains or slopes: fall back to the highest land.
+            for (int i = 0; i < height.Length; i++)
+                if (terrain[i] == TerrainType.Land && !forest[i] && slope[i] < 33 && height[i] >= hillCut) stoneCandidates.Add(i);
+        }
 
-        Place(ResourceType.Stone, stoneCandidates, s.StoneClustersPerKm2, minSpacing: 450, nodesMin: 4, nodesMax: 9, radius: 40, allowForest: false);
+        Place(ResourceType.Stone, stoneCandidates, s.StoneClustersPerKm2 * 0.75, minSpacing: 450, nodesMin: 4, nodesMax: 9, radius: 40, allowForest: false);
+        Place(ResourceType.Stone, stoneSlopeCandidates, s.StoneClustersPerKm2 * 0.25, minSpacing: 450, nodesMin: 4, nodesMax: 9, radius: 40, allowForest: false, stream: 1);
         Place(ResourceType.Berries, berryCandidates, s.BerryClustersPerKm2, minSpacing: 350, nodesMin: 6, nodesMax: 13, radius: 30, allowForest: true);
         Place(ResourceType.Apples, appleCandidates, s.AppleClustersPerKm2, minSpacing: 450, nodesMin: 4, nodesMax: 11, radius: 40, allowForest: false);
         return result;
 
-        void Place(ResourceType type, List<int> candidates, double perKm2, double minSpacing, int nodesMin, int nodesMax, double radius, bool allowForest)
+        void Place(ResourceType type, List<int> candidates, double perKm2, double minSpacing, int nodesMin, int nodesMax, double radius, bool allowForest, ulong stream = 0)
         {
             if (candidates.Count == 0) return;
             // One stream per type: tuning one resource doesn't reshuffle the others.
-            var rng = Rng.For(seed.Value, StreamResources * 16 + (ulong)type);
+            var rng = Rng.For(seed.Value, StreamResources * 16 + (ulong)type + stream * 1000);
             int target = (int)Math.Round(landAreaKm2 * perKm2);
             int placed = 0;
             for (int attempt = 0; attempt < target * 60 && placed < target; attempt++)
@@ -462,7 +509,7 @@ public static class WorldGenerator
                     int gx = (int)MathF.Round(px / s.CellSize), gz = (int)MathF.Round(pz / s.CellSize);
                     if (gx < 0 || gz < 0 || gx >= n || gz >= n) continue;
                     int gi = gz * n + gx;
-                    if (terrain[gi] != TerrainType.Land) continue;
+                    if (terrain[gi] != TerrainType.Land || slope[gi] >= 35) continue;
                     if (!allowForest && forest[gi]) continue;
                     nodes.Add((px, pz));
                 }

@@ -23,6 +23,20 @@ public static class Program
         Console.WriteLine($"Seed {seed.Text}  generated in {sw.ElapsedMilliseconds} ms");
         Console.WriteLine($"Land {map.LandAreaKm2:0.0} km2 | beach {Count(TerrainType.Beach)} | river {Count(TerrainType.River)} | lake {Count(TerrainType.Lake)} cells");
         Console.WriteLine($"Forest {100.0 * map.Forest.Count(f => f) / Math.Max(1, Count(TerrainType.Land)):0}% of land | suitable cells {map.SiteSuitable.Count(b => b)}");
+        Console.WriteLine($"Max height {map.Height.Max():0} m | mountain {100.0 * map.Mountain.Count(m => m) / Math.Max(1, map.Terrain.Count(t => t != TerrainType.Ocean)):0.0}% | volcanoes {map.Volcanoes.Count} (crater lakes {map.Volcanoes.Count(v => v.HasCraterLake)}) | plateaus {map.Plateaus.Count}");
+        int coast = 0, cliff = 0;
+        for (int z = 1; z < n - 1; z++)
+        for (int x = 1; x < n - 1; x++)
+        {
+            int i = z * n + x;
+            if (map.Terrain[i] is not (TerrainType.Beach or TerrainType.Land)) continue;
+            bool touches = false;
+            for (int dz = -1; dz <= 1; dz++) for (int dx = -1; dx <= 1; dx++) if (map.Terrain[i + dz * n + dx] == TerrainType.Ocean) touches = true;
+            if (!touches) continue;
+            coast++;
+            if (map.Terrain[i] == TerrainType.Land) cliff++;
+        }
+        Console.WriteLine($"Coast cliffs {100.0 * cliff / Math.Max(1, coast):0}% of coastline | impassable {100.0 * map.SlopeClasses.Count(c => c == SlopeClass.Impassable) / Math.Max(1, map.Terrain.Count(t => t != TerrainType.Ocean)):0.0}% of land");
         foreach (ResourceType t in Enum.GetValues<ResourceType>())
             Console.WriteLine($"  {t}: {map.Resources.Count(r => r.Type == t)} clusters");
 
@@ -39,17 +53,32 @@ public static class Program
         var header = System.Text.Encoding.ASCII.GetBytes($"P6\n{n} {n}\n255\n");
         fs.Write(header);
         var px = new byte[n * n * 3];
-        for (int i = 0; i < n * n; i++)
+        for (int z = 0; z < n; z++)
+        for (int x = 0; x < n; x++)
         {
-            (byte r, byte g, byte b) c = map.Terrain[i] switch
+            int i = z * n + x;
+            (double r, double g, double b) c = map.Terrain[i] switch
             {
                 TerrainType.Ocean => (30, 70, 130),
                 TerrainType.Lake => (50, 110, 190),
                 TerrainType.River => (60, 130, 210),
                 TerrainType.Beach => (220, 205, 150),
-                _ => map.Forest[i] ? ((byte)30, (byte)95, (byte)40) : Shade(map.Height[i]),
+                _ => map.Slope[i] > 33 ? (120, 115, 105)
+                    : map.Forest[i] ? (30, 95, 40)
+                    : map.Height[i] > 220 ? (130, 135, 100)
+                    : map.PlateauTop[i] ? (175, 170, 90)
+                    : (110, 165, 80),
             };
-            px[i * 3] = c.r; px[i * 3 + 1] = c.g; px[i * 3 + 2] = c.b;
+            // Hill shading (light from the north-west) to show relief.
+            if (map.Terrain[i] != TerrainType.Ocean)
+            {
+                int xl = Math.Max(x - 1, 0), xr = Math.Min(x + 1, n - 1), zd = Math.Max(z - 1, 0), zu = Math.Min(z + 1, n - 1);
+                double gx = (map.Height[z * n + xr] - map.Height[z * n + xl]) / (2 * map.CellSize);
+                double gz = (map.Height[zu * n + x] - map.Height[zd * n + x]) / (2 * map.CellSize);
+                double shade = Math.Clamp(1.0 + (gx + gz) * -1.2, 0.45, 1.35);
+                c = (c.r * shade, c.g * shade, c.b * shade);
+            }
+            px[i * 3] = (byte)Math.Clamp(c.r, 0, 255); px[i * 3 + 1] = (byte)Math.Clamp(c.g, 0, 255); px[i * 3 + 2] = (byte)Math.Clamp(c.b, 0, 255);
         }
         foreach (var cl in map.Resources)
         {

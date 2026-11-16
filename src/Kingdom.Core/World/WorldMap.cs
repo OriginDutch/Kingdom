@@ -13,6 +13,28 @@ public enum TerrainType : byte
     River,
 }
 
+/// <summary>How hard a cell is to cross (GDD slope classes).</summary>
+public enum SlopeClass : byte
+{
+    /// <summary>0-10 degrees: normal walking, carts fine.</summary>
+    Normal,
+    /// <summary>10-20 degrees: slightly slower on foot, slow for carts.</summary>
+    Slow,
+    /// <summary>20-35 degrees: climbing on foot, no carts.</summary>
+    Climb,
+    /// <summary>Above 35 degrees: cliff, impassable.</summary>
+    Impassable,
+}
+
+/// <summary>A volcanic mountain: cone with a crater at the top, sometimes holding a crater lake.</summary>
+/// <param name="BreachAngle">Direction (radians) of the notch that drains the crater; NaN when it holds a lake.</param>
+public sealed record Volcano(float CenterX, float CenterZ, float Radius, float CraterRadius, bool HasCraterLake, float BreachAngle);
+
+/// <summary>A raised flat area with steep edges and a few ramps up.</summary>
+/// <param name="Accesses">Number of ways up (broad flanks, ravines, or the mountainside), 1-3.</param>
+/// <param name="AgainstMountain">Placed against a mountain or volcano rather than standalone.</param>
+public sealed record Plateau(float CenterX, float CenterZ, float Radius, float TopHeight, int Accesses, bool AgainstMountain);
+
 public enum ResourceType : byte
 {
     Stone,
@@ -61,13 +83,36 @@ public sealed class WorldMap
     public bool[] SiteSuitable { get; }
     public IReadOnlyList<ResourceCluster> Resources { get; }
 
+    /// <summary>Steepness of the ground in degrees.</summary>
+    public float[] Slope { get; }
+    public SlopeClass[] SlopeClasses { get; }
+    /// <summary>Raised by mountains or volcanoes by more than <see cref="WorldSettings.MountainThreshold"/>.</summary>
+    public bool[] Mountain { get; }
+    /// <summary>Inside a plateau's flat top.</summary>
+    public bool[] PlateauTop { get; }
+    /// <summary>Coast stretch that is cliff instead of beach.</summary>
+    public bool[] CliffCoast { get; }
+    public IReadOnlyList<Volcano> Volcanoes { get; }
+    /// <summary>How volcanic the ground is: 1 at a volcano's top, 0 at its foot and beyond.</summary>
+    public float[] Volcanic { get; }
+    public IReadOnlyList<Plateau> Plateaus { get; }
+
     /// <summary>Land area in km^2 (Beach + Land + River cells).</summary>
     public double LandAreaKm2 { get; }
 
     internal WorldMap(Seed seed, WorldSettings settings, float[] height, float[] waterLevel, TerrainType[] terrain,
         bool[] forest, float[] freshWaterDistance, bool[] siteSuitable, IReadOnlyList<ResourceCluster> resources,
-        double landAreaKm2)
+        double landAreaKm2, float[] slope, SlopeClass[] slopeClasses, bool[] mountain, bool[] plateauTop, bool[] cliffCoast,
+        IReadOnlyList<Volcano> volcanoes, IReadOnlyList<Plateau> plateaus, float[] volcanic)
     {
+        Volcanic = volcanic;
+        Slope = slope;
+        SlopeClasses = slopeClasses;
+        Mountain = mountain;
+        PlateauTop = plateauTop;
+        CliffCoast = cliffCoast;
+        Volcanoes = volcanoes;
+        Plateaus = plateaus;
         Seed = seed;
         Settings = settings;
         Size = settings.Size;

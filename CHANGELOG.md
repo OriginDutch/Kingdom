@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. Newest version first.
 Versions follow `MAJOR.MINOR.PATCH`.
 
+## 0.0.4 — 2026-11-16
+
+Relief update: the island is no longer flat.
+
+### Added
+- Mountain ranges (up to ~500 m, at most 15% of the island) with ridges and foothills.
+- Volcanic mountains: every world has at least one, sometimes two or three. Never a perfect circle: lumpy or stretched footprint, radial ravines, sometimes a collapsed flank (horseshoe scar) or a small side cone. Each has a crater; some hold a crater lake, the others are breached and drain.
+- Plateaus: 2-5 per world, 300-800 m across, with lobed cliff edges and gently undulating tops (3-6 m). About 2 in 3 lean against a mountain or volcano. Access is natural: broad sloping flanks, ravines cut into the edge, or the mountainside itself.
+- Coastal cliffs on up to 35% of the coastline (beach elsewhere).
+- Rivers carve valleys that widen as the river grows; river mouths stay open through coastal cliffs.
+- Slope classes per cell: 0-10° normal, 10-20° slow, 20-35° climb, over 35° impassable.
+- Rock colouring on steep ground, stony uplands, dark volcanic slopes.
+
+### Changed
+- Lowland hills are higher (~85 m instead of ~35 m).
+- Stone is found mainly in the mountains and on slopes.
+- No forest above the tree line (330 m) or on cliff-steep ground.
+
 ## 0.0.3 — 2026-11-16
 
 ### Fixed
