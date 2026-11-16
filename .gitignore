@@ -1,0 +1,21 @@
+# Godot
+game/.godot/
+game/android/
+
+# Godot export output
+export/
+builds/
+
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+.vs/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Pure simulation core. No Godot references allowed here:
+    world generation, economy, agents and AI live in this library
+    so they can be tested and run headless, separate from rendering.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Kingdom.Core</RootNamespace>
+  </PropertyGroup>
+  <!-- Godot exports with its own configuration names; plain SDK projects
+       only optimize for "Release", so mirror Godot's settings here. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'ExportRelease'">
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'ExportDebug'">
+    <DefineConstants>$(DefineConstants);DEBUG</DefineConstants>
+  </PropertyGroup>
+</Project>

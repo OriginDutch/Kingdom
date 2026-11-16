@@ -1,0 +1,27 @@
+# Normalize line endings in the repo; Git converts on checkout per platform.
+* text=auto eol=lf
+
+# Windows-only files keep CRLF
+*.sln text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.glb binary
+*.blend binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
+*.exr binary
+*.hdr binary
+*.res binary
+*.scn binary
+*.ico binary
+*.dll binary
+*.exe binary

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Dependency-free test runner for Kingdom.Core.
+    Run from the repo root: dotnet run (project path: tests/Kingdom.Core.Tests)
+    Exit code 0 = all tests passed.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>Kingdom.Core.Tests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Kingdom.Core\Kingdom.Core.csproj" />
+  </ItemGroup>
+</Project>

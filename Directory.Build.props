@@ -1,0 +1,8 @@
+<Project>
+  <!-- Shared settings for every C# project in this repo. -->
+  <PropertyGroup>
+    <Version>0.0.1</Version>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+  </PropertyGroup>
+</Project>
