@@ -110,12 +110,14 @@ public static partial class WorldGenerator
         var steepShore = new bool[count];
         for (int i = 0; i < count; i++)
         {
-            if (terrain[i] != TerrainType.Beach) continue;
-            if (heightF[i] > 3 || slope[i] >= s.SlopeSlowMax)
+            if (terrain[i] == TerrainType.Beach && (heightF[i] > 3 || slope[i] >= s.SlopeSlowMax))
             {
                 terrain[i] = TerrainType.Land;
                 steepShore[i] = true;
             }
+            // Cliff-steep land right at the shore is cliff coast too.
+            else if (terrain[i] == TerrainType.Land && coastDist[i] <= s.BeachWidthCells && slope[i] > s.SlopeClimbMax)
+                steepShore[i] = true;
         }
         var forestNoise = BuildForest(seed, s, terrain, heightF, slope, out var forest);
         var resources = PlaceResources(seed, s, heightF, terrain, forest, forestNoise, slope, isMountain, landAreaKm2);

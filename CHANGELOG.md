@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. Newest version first.
 Versions follow `MAJOR.MINOR.PATCH`.
 
+## 0.0.5 — 2026-11-16
+
+Relief polish after the follow-up review.
+
+### Fixed
+- Mountain ranges no longer end in a wall where they meet a volcano; they now slope into the cone.
+- Small volcanoes are no longer too steep to climb (base slope capped at ~29°).
+- Plateaus "against a mountain" always have a real way up onto the mountainside; otherwise they count as standalone.
+- Plateau tops now reliably undulate 3-6 m.
+- Cliff-steep land right at the shore is marked as cliff coast; flank sides are slightly gentler.
+
 ## 0.0.4 — 2026-11-16
 
 Relief update: the island is no longer flat.

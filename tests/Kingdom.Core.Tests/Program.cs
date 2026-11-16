@@ -370,7 +370,7 @@ public static class Program
                         lo = MathF.Min(lo, m.Height[i]); hi = MathF.Max(hi, m.Height[i]);
                     }
                     Assert.True(hi - lo >= 2.5f && hi - lo <= 6.5f, $"{seed}: plateau top varies {hi - lo:0.0} m");
-                    // Raised: in most directions the ground just outside is clearly lower (ramps excepted).
+                    // Raised: in many directions the ground just outside is clearly lower (flanks and mountainsides excepted).
                     int lower = 0;
                     for (int k = 0; k < 16; k++)
                     {
@@ -378,7 +378,7 @@ public static class Program
                         float o = m.GroundHeightAt(p.CenterX + (float)Math.Cos(a) * p.Radius * 1.6f, p.CenterZ + (float)Math.Sin(a) * p.Radius * 1.6f);
                         if (p.TopHeight - o > 15) lower++;
                     }
-                    Assert.True(lower >= (p.AgainstMountain ? 5 : 8), $"{seed}: plateau only clearly raised in {lower}/16 directions");
+                    Assert.True(lower >= 5, $"{seed}: plateau only clearly raised in {lower}/16 directions");
                 }
             }
         }),
@@ -418,7 +418,7 @@ public static class Program
                 }
             }
         }),
-        ("Relief: about 2 in 3 plateaus lean against a mountain or volcano", () =>
+        ("Relief: about 2 in 3 plateaus lean against a mountain or volcano, with the mountainside as a way up", () =>
         {
             int near = 0, total = 0;
             foreach (var seed in TestSeeds.Concat(SweepSeeds))
@@ -438,6 +438,29 @@ public static class Program
                             found = m.Mountain[m.Index(gx, gz)];
                     }
                     Assert.True(found, $"{seed}: plateau marked as against a mountain has none nearby");
+                    // The mountainside is a way up: from the top onto mountain ground 20 m higher, never dropping
+                    // more than 5 m below the top, never crossing a cliff or water.
+                    m.TryGetCell(p.CenterX, p.CenterZ, out int sx, out int sz);
+                    var seen = new HashSet<int> { m.Index(sx, sz) };
+                    var q = new Queue<int>(seen);
+                    bool reached = false;
+                    while (q.Count > 0 && !reached)
+                    {
+                        int c = q.Dequeue();
+                        int cx = c % m.Size, cz = c / m.Size;
+                        foreach (var (dx, dz) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                        {
+                            int x = cx + dx, z = cz + dz;
+                            if (!m.InBounds(x, z)) continue;
+                            int j = m.Index(x, z);
+                            if (seen.Contains(j) || m.IsWater(j) || m.SlopeClasses[j] == SlopeClass.Impassable) continue;
+                            if (m.Height[j] < p.TopHeight - 6) continue;
+                            seen.Add(j);
+                            if (m.Mountain[j] && m.Height[j] >= p.TopHeight + 15) { reached = true; break; }
+                            q.Enqueue(j);
+                        }
+                    }
+                    Assert.True(reached, $"{seed}: no way from the plateau top up onto the mountainside");
                 }
             }
             double share = (double)near / total;

@@ -69,6 +69,8 @@ public static partial class WorldGenerator
             // Keep the whole cone on land: shrink it to fit, or skip spots too close to the sea.
             radius = Math.Min(radius, coastDist[c] * s.CellSize / (stretch * 1.3));
             if (radius < 550) continue;
+            // Not steeper than ~29 degrees at the base (H * 1.25 / R), so the cone itself isn't a wall.
+            height = Math.Min(height, 0.45 * radius);
             double footprintOffset = rng.Range(0, 100);
             double ravineDepth = rng.Range(8, 18);
             int ravineCount = rng.NextInt(9, 16);
@@ -239,6 +241,7 @@ public static partial class WorldGenerator
 
         var raw = new double[count];
         var ridge = new double[count];
+        var volcanoScale = new double[count];
         int land = 0;
         for (int z = 0; z < n; z++)
         for (int x = 0; x < n; x++)
@@ -250,14 +253,16 @@ public static partial class WorldGenerator
             // Keep a coastal plain: ranges fade out near the sea; and softly towards a volcano's top,
             // so a range never fills the crater or cuts a wall into the cone.
             double fade = SmoothStep(10, 120, coastDist[i]);
-            double volcanoFade = 1 - SmoothStep(0.45, 0.9, volcanoRn[i]);
-            raw[i] = maskNoise.Fbm(wx / 3500.0, wz / 3500.0, 3) - (1 - fade) * 0.7 - volcanoFade * 2.0;
+            raw[i] = maskNoise.Fbm(wx / 3500.0, wz / 3500.0, 3) - (1 - fade) * 0.7;
+            // Near a volcano the range's height fades out over a wide band, so it slopes into the cone instead
+            // of ending in a wall.
+            volcanoScale[i] = SmoothStep(0.45, 1.3, volcanoRn[i]);
             double r = 1 - Math.Abs(ridgeNoise.Fbm(wx / 1100.0, wz / 1100.0, 5));
             ridge[i] = r * r;
         }
         if (land == 0) return;
 
-        double Range(int i, double cut) => SmoothStep(cut, cut + 0.45, raw[i]) * (40 + s.MountainRangeHeight * ridge[i]);
+        double Range(int i, double cut) => SmoothStep(cut, cut + 0.45, raw[i]) * (40 + s.MountainRangeHeight * ridge[i]) * volcanoScale[i];
 
         // For each cell, the highest cut-off at which the range still makes it a mountain. Taking a quantile of
         // these hits the target share in one pass instead of a bisection over the whole map.
@@ -267,7 +272,9 @@ public static partial class WorldGenerator
         {
             if (isOcean[i]) continue;
             if (mountainAdd[i] > s.MountainThreshold) { already++; continue; }
-            double need = s.MountainThreshold / (40 + s.MountainRangeHeight * ridge[i]);
+            double peak = (40 + s.MountainRangeHeight * ridge[i]) * volcanoScale[i];
+            if (peak <= 0) continue;
+            double need = s.MountainThreshold / peak;
             if (need >= 1) continue;
             // Invert the smoothstep: t with t^2(3-2t) = need.
             double lo2 = 0, hi2 = 1;
@@ -370,15 +377,17 @@ public static partial class WorldGenerator
             double baseTop = height[c] + rng.Range(25, 45);
             // Gently undulating top: mostly a tilt (so few closed hollows), a little wave; scaled below so the
             // whole top spans 3-6 m.
-            double topRange = rng.Range(3.2, 5.8);
+            double topRange = rng.Range(3.3, 5.3);
             double tiltAngle = rng.Range(0, Math.PI * 2);
             double topScale = 1, topMid = 0;
             {
                 double lo = double.MaxValue, hi = double.MinValue;
-                for (double sx = -r; sx <= r; sx += 20)
-                for (double sz = -r; sz <= r; sz += 20)
+                for (double sx = -r * 1.3; sx <= r * 1.3; sx += 15)
+                for (double sz = -r * 1.3; sz <= r * 1.3; sz += 15)
                 {
-                    if (sx * sx + sz * sz > r * r * 1.3 * 1.3) continue;
+                    // Only the real top (inside the lobed edge, away from the rim).
+                    double sd = Math.Sqrt(sx * sx + sz * sz);
+                    if (sd > EdgeRadius(sx, sz) - 30) continue;
                     double v = RawTop(sx, sz);
                     lo = Math.Min(lo, v);
                     hi = Math.Max(hi, v);
@@ -402,7 +411,12 @@ public static partial class WorldGenerator
                     double a = k * Math.PI / 16;
                     int sx = Math.Clamp((int)((cx + Math.Cos(a) * dist) / s.CellSize), 0, n - 1);
                     int sz = Math.Clamp((int)((cz + Math.Sin(a) * dist) / s.CellSize), 0, n - 1);
-                    if (mountainAdd[sz * n + sx] > best) { best = mountainAdd[sz * n + sx]; start = a; }
+                    int si = sz * n + sx;
+                    // Prefer mountain ground that can actually be walked onto (not a cliff face).
+                    int sx2 = Math.Clamp(sx + (int)Math.Round(Math.Cos(a) * 2), 0, n - 1), sz2 = Math.Clamp(sz + (int)Math.Round(Math.Sin(a) * 2), 0, n - 1);
+                    double rise = Math.Abs(height[sz2 * n + sx2] - height[si]) / (2 * s.CellSize);
+                    if (rise > Math.Tan(28 * Math.PI / 180)) continue;
+                    if (mountainAdd[si] > best) { best = mountainAdd[si]; start = a; }
                 }
                 accesses.Add((PlateauAccess.Flank, start, 0.55, Math.Tan(rng.Range(5, 8) * Math.PI / 180)));
             }
@@ -478,7 +492,7 @@ public static partial class WorldGenerator
                         double halfWidth = r * Math.Sin(acc.HalfWidth) + Math.Max(0, along - edgeAxis) * 0.6;
                         // Debris makes the flank a little uneven.
                         double slope = acc.Slope * (1 + 0.1 * noise.Sample(dx / 60.0 + edgeOffset, dz / 60.0));
-                        double ft = top - Math.Max(0, d - edge) * slope - Math.Max(0, lateral - halfWidth) * 0.5;
+                        double ft = top - Math.Max(0, d - edge) * slope - Math.Max(0, lateral - halfWidth) * 0.45;
                         flankTarget = Math.Max(flankTarget, ft);
                     }
                     else
@@ -532,9 +546,12 @@ public static partial class WorldGenerator
                     height[z * n + x] = backup[(z - z0) * bw + (x - x0)];
                 continue;
             }
+            // Against a mountain, the mountainside must really be a way up: walk from the top onto mountain ground
+            // well above it without dropping more than a few metres. If not, it's just a plateau near a mountain.
+            bool againstMountain = near && HasWayOntoMountain(s, height, isOcean, mountainAdd, gx, gz, baseTop, r * 2.5);
             foreach (int i in touched) plateauStamp[i] = true;
             foreach (int i in topCells) plateauTop[i] = true;
-            result.Add(new Plateau(cx, cz, (float)r, (float)baseTop, accessCount, near));
+            result.Add(new Plateau(cx, cz, (float)r, (float)baseTop, accessCount, againstMountain));
             slotAttempts = 0;
 
             double EdgeRadius(double dx, double dz)
@@ -554,6 +571,36 @@ public static partial class WorldGenerator
             double TopAt(double dx, double dz) => baseTop + (RawTop(dx, dz) - topMid) * topScale;
         }
         return result;
+    }
+
+    /// <summary>Walk from the plateau top over climbable cells that never drop more than 5 m below the top, until a
+    /// mountain cell at least 20 m above the top is reached.</summary>
+    private static bool HasWayOntoMountain(WorldSettings s, double[] height, bool[] isOcean, double[] mountainAdd,
+        int gx, int gz, double top, double maxDistance)
+    {
+        int n = s.Size;
+        var seen = new HashSet<int> { gz * n + gx };
+        var q = new Queue<int>();
+        q.Enqueue(gz * n + gx);
+        while (q.Count > 0)
+        {
+            int c = q.Dequeue();
+            int cx = c % n, cz = c / n;
+            for (int k = 0; k < 4; k++)
+            {
+                int x = cx + Dx8[k], z = cz + Dz8[k];
+                if (x < 1 || z < 1 || x >= n - 1 || z >= n - 1) continue;
+                int j = z * n + x;
+                if (isOcean[j] || !seen.Add(j)) continue;
+                if (height[j] < top - 5) continue;
+                if (CellSlopeDegrees(height, n, s.CellSize, x, z) > s.SlopeClimbMax) continue;
+                double dx = (x - gx) * s.CellSize, dz = (z - gz) * s.CellSize;
+                if (dx * dx + dz * dz > maxDistance * maxDistance) continue;
+                if (mountainAdd[j] > s.MountainThreshold && height[j] >= top + 20) return true;
+                q.Enqueue(j);
+            }
+        }
+        return false;
     }
 
     /// <summary>Breadth-first walk over cells no steeper than the climb limit, from (gx, gz) until <paramref name="escape"/> metres away.</summary>
